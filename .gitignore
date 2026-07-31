@@ -1,0 +1,8 @@
+# Captured request bodies. They embed the full system prompt (cwd, environment
+# details, git status of the local machine) and are large. Re-run the feature
+# scripts to regenerate evidence.
+artifacts/
+
+.venv/
+__pycache__/
+*.pyc
