@@ -23,7 +23,13 @@ re-confirm what capture already proved.
 
 **It cannot see an alternate route.** Removing the web tools leaves `Bash` in
 place, and `curl` reaches the same network. The request body is clean either
-way, so this class of leak is invisible to capture by construction.
+way, so this class of leak is invisible to capture by construction — and it is
+not hypothetical: see [web_search.md](web_search.md) finding 7, where a clean
+request body accompanies a successfully fetched live page.
+
+This is also why "the tool is gone" and "the data stayed out" have to be
+measured as separate questions. Conflating them is the mistake the behavioral
+layer exists to prevent.
 
 **It cannot separate "offered" from "ran".** A harness can ship a tool, let the
 model call it, and then refuse to execute it. Every run therefore gets sorted

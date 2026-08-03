@@ -41,6 +41,15 @@ body** sent to Anthropic.
   non-interactive mode has nobody to approve the prompt. That safety is
   **incidental** — one `--allowedTools WebSearch` away from being live, so
   disable the tools explicitly rather than relying on it.
+* **Disabling the tools is a complete control over server-side search** — not
+  defeated by `bypassPermissions`, and not defeated by delegating to a subagent.
+  **It is not a control over network access**: under `bypassPermissions` the
+  agent reached the live page through `Bash` + `curl` on every run. Keeping live
+  data out needs an OS-level boundary (Claude Code's Bash sandbox, a network
+  namespace, a container egress policy), not more tool flags.
+* Agent SDK and `claude -p` are the same binary — the SDK spawns the CLI — and
+  measured identically throughout. Neither is better at this; choose on other
+  grounds.
 
 Full conditions, raw evidence, and reasoning: [docs/web_search.md](docs/web_search.md).
 
@@ -68,7 +77,8 @@ The behavioral cross-check is separate because it costs far more — it performs
 real agentic runs with live network access, 3 repeats per scenario:
 
 ```bash
-python -m features.web_search.behavior    # 6 scenarios x 3 repeats
+python -m features.web_search.behavior    # did the search actually run?
+python -m features.web_search.egress      # can it reach the net some other way?
 python -m features.web_search.behavior 1  # smoke test, 1 repeat each
 ```
 
@@ -92,6 +102,7 @@ features/<feature>/
     direct_api.py             # mode 3: direct API, runnable on its own
     run.py                    # entry point: all modes, one table
     behavior.py               # behavioral cross-check (optional, costly)
+    egress.py                 # can it reach the net another way? (optional, costly)
 docs/<feature>.md             # full experimental record for that feature
 docs/methodology.md           # method, fairness isolation checklist, known limits
 artifacts/                    # captured request bodies (not committed, see .gitignore)

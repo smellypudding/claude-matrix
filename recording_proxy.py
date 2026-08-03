@@ -201,6 +201,31 @@ class RecordingProxy:
                         found.append(block)
         return found
 
+    def executed_tool_uses(self, *names: str) -> list[dict[str, Any]]:
+        """Like `tool_uses`, but only the calls that actually ran.
+
+        A harness can accept a tool call and then refuse to execute it, so
+        "the model called it" and "it happened" are different questions. An
+        unanswered call counts as not executed: if no result came back,
+        nothing happened.
+
+        The two tool families report failure differently. Client-side tools set
+        `is_error: true` on the result. Anthropic-hosted tools leave that unset
+        and nest an error object in `content` instead, so checking only the
+        flag would score a failed server-side call as a success.
+        """
+        results = self.tool_results()
+        ran: list[dict[str, Any]] = []
+        for block in self.tool_uses(*names):
+            result = results.get(block.get("id", ""))
+            if result is None or result.get("is_error") is True:
+                continue
+            content = result.get("content")
+            if isinstance(content, dict) and str(content.get("type", "")).endswith("error"):
+                continue
+            ran.append(block)
+        return ran
+
     def tool_results(self) -> dict[str, dict[str, Any]]:
         """Map every `tool_use_id` to the `tool_result` block that answered it.
 

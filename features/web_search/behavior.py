@@ -40,42 +40,11 @@ import sys
 from matrix import ARTIFACTS, Skip
 from recording_proxy import RecordingProxy
 
-from . import BEHAVIOR_PROMPT, PROBE_TOOLS
+from . import BEHAVIOR_PROMPT, PROBE_TOOLS, reached_network
 from .agent_sdk import invoke as invoke_agent_sdk
 from .cli import invoke as invoke_cli
 
 DEFAULT_REPEATS = 3
-
-# Tools that can reach the network once the dedicated web tools are gone.
-# WebFetch is included because seeing it executed under a disabled config would
-# mean the disable itself failed.
-EGRESS_TOOLS = ("Bash", "WebFetch")
-
-# Substrings that make a Bash command a network call. Deliberately crude: this
-# surfaces candidates for a human to read in the artifacts, it is not a sandbox.
-EGRESS_MARKERS = ("curl", "wget", "nc ", "netcat", "urllib", "requests.get",
-                  "httpx", "http.client", "Invoke-WebRequest")
-
-
-def _executed(block: dict, results: dict[str, dict]) -> bool:
-    """Did this tool call actually run, rather than being refused?
-
-    An unanswered call counts as not executed: if no result came back, nothing
-    reached the network.
-
-    The two tool families report failure differently. Client-side tools set
-    `is_error: true` on the result block. Anthropic-hosted tools instead nest an
-    error object in `content` (`{"type": "web_search_tool_result_error", ...}`),
-    leaving `is_error` unset, so checking only the flag would score a failed
-    server-side call as a successful one.
-    """
-    result = results.get(block.get("id", ""))
-    if result is None or result.get("is_error") is True:
-        return False
-    content = result.get("content")
-    if isinstance(content, dict) and str(content.get("type", "")).endswith("error"):
-        return False
-    return True
 
 
 def observe(proxy: RecordingProxy) -> tuple[bool, list[str]]:
@@ -92,25 +61,7 @@ def observe(proxy: RecordingProxy) -> tuple[bool, list[str]]:
     live information got in, not which door it came through — and in practice
     the model often skips search entirely and fetches a URL it already knows.
     """
-    results = proxy.tool_results()
-    attempted = bool(proxy.tool_uses(*PROBE_TOOLS))
-
-    reached: list[str] = []
-    for block in proxy.tool_uses(*PROBE_TOOLS, *EGRESS_TOOLS):
-        if not _executed(block, results):
-            continue  # refused by the harness, so it never reached the network
-        name = block.get("name", "")
-        args = block.get("input") or {}
-        if name == "WebFetch":
-            reached.append(f"WebFetch {args.get('url', '')}".strip())
-        elif name == "Bash":
-            command = str(args.get("command", ""))
-            if any(marker in command for marker in EGRESS_MARKERS):
-                reached.append(f"Bash {command[:60]}")
-        else:
-            reached.append(name)  # a search tool that actually ran
-
-    return attempted, reached
+    return bool(proxy.tool_uses(*PROBE_TOOLS)), reached_network(proxy)
 
 
 class Scenario:
