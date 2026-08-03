@@ -114,6 +114,40 @@ keychain**. So it is unusable on a machine that only has a claude.ai login. With
 an API key it is worth adopting as an isolation baseline, and worth verifying as
 its own cell.
 
+## What the proxy cannot see
+
+The proxy records **requests only, never responses**. That bounds what any
+check built on it can claim, in three ways worth stating plainly.
+
+**A server-side tool that runs inside one response is invisible.** When the
+direct API executes `web_search_20260209`, the `server_tool_use` and
+`web_search_tool_result` blocks live in the response body. On a single-turn
+call there is no later request replaying them, so the proxy sees a request with
+a tool declared and nothing else. This is why the direct API has no behavioral
+coverage — it would need response capture, which for streaming means parsing
+SSE.
+
+**Harness modes escape this only by accident of architecture.** The CLI and
+Agent SDK round-trip every tool call through `/v1/messages`, so calls reappear
+in the next request's history and the proxy catches them. That is a property of
+how those harnesses are built, not a guarantee the method provides. A future
+harness that resolved a tool without another API call would be just as
+invisible.
+
+**Detectors must match every call-block type.** A tool invocation is
+`tool_use` for client-side tools, `server_tool_use` for Anthropic-hosted ones,
+and `mcp_tool_use` for MCP. Results likewise vary: client-side tools set
+`is_error` on a `tool_result`, while server-side tools return
+`web_search_tool_result` and nest the failure inside `content`. Matching only
+the client-side shapes yields a detector that reports "no tool used" while a
+tool ran — a silent false negative, the worst possible failure for this repo.
+`tool_uses()` and `tool_results()` therefore match all of them, even though the
+modes measured so far only ever produce the client-side forms.
+
+Traffic that does not honor `ANTHROPIC_BASE_URL` is out of scope entirely
+(telemetry, auto-update, and whatever `WebFetch` does to retrieve a page). See
+the reverse-proxy tradeoff above.
+
 ## Known limits
 
 * **Total tool count fluctuates slightly between runs** (two cells both labeled

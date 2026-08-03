@@ -44,6 +44,12 @@ _HOP_BY_HOP = {
     "proxy-authenticate", "proxy-authorization", "te", "trailers",
 }
 
+# Every block type that represents the model invoking a tool. Client-side tools
+# produce `tool_use`; Anthropic-hosted tools produce `server_tool_use`; MCP
+# tools produce `mcp_tool_use`. All three must be checked, or a detector that
+# only knows the first will report "no tool used" while a tool ran.
+_TOOL_CALL_BLOCKS = {"tool_use", "server_tool_use", "mcp_tool_use"}
+
 
 class RecordingProxy:
     """A reverse proxy on an ephemeral port that records every request."""
@@ -174,8 +180,12 @@ class RecordingProxy:
         reaching the network through `Bash` + `curl` once the web tools are gone.
 
         Names are matched exactly and case-insensitively. Unlike `tools_offered`
-        there is no type-prefix matching, because a tool_use block carries the
+        there is no type-prefix matching, because a call block carries the
         tool's name, never its declaration type.
+
+        All three call-block types are matched. Checking only `tool_use` would
+        silently under-report any server-side or MCP tool, and a detector that
+        misses a leak while reporting success is worse than no detector.
         """
         wanted = {n.lower() for n in names}
         found: list[dict[str, Any]] = []
@@ -185,7 +195,7 @@ class RecordingProxy:
                 if not isinstance(content, list):
                     continue  # a plain string turn holds no tool calls
                 for block in content:
-                    if block.get("type") != "tool_use":
+                    if block.get("type") not in _TOOL_CALL_BLOCKS:
                         continue
                     if (block.get("name") or "").lower() in wanted:
                         found.append(block)
@@ -200,7 +210,10 @@ class RecordingProxy:
         prompt, so the result comes back with `is_error: true` and a message
         about permissions, and the tool never reached the network.
 
-        Later results win, so a retried call reflects its final outcome.
+        Client-side tools answer with `tool_result`; Anthropic-hosted tools use
+        a per-tool type such as `web_search_tool_result`, so anything ending in
+        `tool_result` counts. Later results win, so a retried call reflects its
+        final outcome.
         """
         results: dict[str, dict[str, Any]] = {}
         for req in self.requests:
@@ -209,7 +222,8 @@ class RecordingProxy:
                 if not isinstance(content, list):
                     continue
                 for block in content:
-                    if block.get("type") == "tool_result" and block.get("tool_use_id"):
+                    type_ = block.get("type") or ""
+                    if type_.endswith("tool_result") and block.get("tool_use_id"):
                         results[block["tool_use_id"]] = block
         return results
 

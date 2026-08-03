@@ -31,7 +31,9 @@ body** sent to Anthropic.
   side**.
 * **The CLI's `WebSearch` is not the server-side `web_search_20260209`.** It is
   an ordinary custom tool (has `name`, no `type`). Probing by `type` prefix
-  silently misses it under the CLI and Agent SDK.
+  silently misses it under the CLI and Agent SDK. It is really a two-layer
+  construct: invoking it makes a *nested* `/v1/messages` call that declares the
+  server-side `web_search_20250305` and runs the search there.
 * Risk ordering is the opposite of intuition: the direct API is structurally
   safe, while the two harness modes are the ones enabled by default.
 * Behaviorally, default `claude -p` never actually reaches the network: the

@@ -98,12 +98,40 @@ server-side `web_search_20260209`. The capture says otherwise:
 { "type": "web_search_20260209", "name": "web_search" }
 ```
 
-The CLI ships it as a client-side tool, performs the search itself, and feeds the
-results back as an ordinary `tool_result`.
-
 **Consequence: probing for a search tool by `type` prefix silently misses it
 under the CLI and Agent SDK.** Detection must match both `name` and `type` —
-which is what `RecordingProxy.tool_calls_for` does.
+which is what `RecordingProxy.tools_offered` does.
+
+### 2b. It is a two-layer construct, not a purely client-side tool
+
+The CLI does not run the search itself. When an approved `WebSearch` call
+fires, it issues a **separate, nested `/v1/messages` request** carrying exactly
+one tool — the server-side `web_search_20250305` — and a synthetic prompt:
+
+```jsonc
+{ "model": "claude-opus-5", "max_tokens": 64000,
+  "tools": [{ "type": "web_search_20250305", "name": "web_search" }],
+  "messages": [{ "role": "user", "content": [{ "type": "text",
+      "text": "Perform a web search for the query: Hacker News top story today" }] }] }
+```
+
+Anthropic executes the search inside that nested call, and the CLI feeds the
+results back into the outer conversation as an ordinary `tool_result`. So the
+official "runs against Anthropic's web search backend" description is accurate
+after all — it just happens one layer down, through a second API call, rather
+than in the request you were watching.
+
+Note the version: the nested call uses the **basic** `web_search_20250305`, not
+the `_20260209` variant with dynamic filtering.
+
+Two practical consequences. First, disabling the outer `WebSearch` tool is
+sufficient — with no outer tool there is no trigger, and the nested call never
+happens (confirmed: all five nested calls observed came from enabled runs
+only). Second, an availability probe that scans *every* captured request can
+conflate the two layers: the nested call declares a search tool by definition,
+so a probe prompt that actually triggers a search would make any config look
+"search-enabled". The capture matrix avoids this by using a trivial prompt that
+never searches, but the hazard is real for anyone reusing the harness.
 
 Note also that `WebFetch` is a separate network path (the harness retrieves the
 page and summarizes it with a small model), so it must be disabled alongside
