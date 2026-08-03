@@ -17,11 +17,13 @@ from recording_proxy import RecordingProxy
 from . import MODEL, PROBE_LABEL, PROBE_TOOLS, PROMPT
 
 
-def invoke(proxy: RecordingProxy, args: list[str], deny: list[str]) -> None:
-    """Run one `claude -p` under experiment isolation.
+def invoke(proxy: RecordingProxy, args: list[str], deny: list[str],
+           prompt: str = PROMPT) -> str:
+    """Run one `claude -p` under experiment isolation. Returns its stdout.
 
     `args` carries the configuration under test; `deny` is written into a
-    settings.json generated for this run only.
+    settings.json generated for this run only. `prompt` is overridable so the
+    behavioral cross-check can send its own probe (see behavior.py).
 
     Everything else below is fairness isolation. Without it, local user
     configuration leaks into the experiment:
@@ -40,9 +42,9 @@ def invoke(proxy: RecordingProxy, args: list[str], deny: list[str]) -> None:
         settings = Path(workdir) / "settings.json"
         settings.write_text(json.dumps({"permissions": {"deny": deny}}))
 
-        subprocess.run(
+        completed = subprocess.run(
             [
-                "claude", "-p", PROMPT,
+                "claude", "-p", prompt,
                 "--model", MODEL,
                 "--settings", str(settings),
                 "--strict-mcp-config",
@@ -53,9 +55,11 @@ def invoke(proxy: RecordingProxy, args: list[str], deny: list[str]) -> None:
             # This env var is what routes the request through the recording proxy
             env={**os.environ, "ANTHROPIC_BASE_URL": proxy.base_url},
             capture_output=True,
-            timeout=300,
+            text=True,
+            timeout=600,
             check=False,
         )
+        return completed.stdout
 
 
 CELLS = [

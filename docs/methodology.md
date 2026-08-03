@@ -15,6 +15,53 @@ Medium-grade evidence is especially dangerous in an experimental setting: the
 model happening not to search on this run says nothing about the next run.
 A tool that is absent from the request body is a structural, reproducible result.
 
+## Why there is a behavioral layer anyway
+
+Capture-based evidence is the primary standard, but it has two blind spots, and
+covering them is the whole job of a behavioral cross-check. It is not there to
+re-confirm what capture already proved.
+
+**It cannot see an alternate route.** Removing the web tools leaves `Bash` in
+place, and `curl` reaches the same network. The request body is clean either
+way, so this class of leak is invisible to capture by construction.
+
+**It cannot separate "offered" from "ran".** A harness can ship a tool, let the
+model call it, and then refuse to execute it. Every run therefore gets sorted
+into three states, and only the last is an actual leak:
+
+| State | How it is detected |
+|---|---|
+| not offered | the tool is absent from the request's `tools[]` |
+| attempted | a `tool_use` block exists, but its `tool_result` has `is_error: true` |
+| executed | a `tool_use` block exists and its result is not an error |
+
+Pairing each call with its result is what `RecordingProxy.tool_results()` is
+for. This distinction is not hypothetical: in non-interactive mode there is
+nobody to approve a permission prompt, so default `claude -p` sits permanently
+in the middle state (see [web_search.md](web_search.md) finding 4).
+
+Both layers read the **same** captured requests, just different parts of them —
+`tools_offered()` reads the tool list, `tool_uses()` and `tool_results()` read
+the conversation history. No second capture mechanism was needed.
+
+### Two rules for reading behavioral results
+
+**A positive control is mandatory.** A scenario that is *expected* to reach the
+network must be run alongside the disabled ones. Without it, "did not search" is
+indistinguishable from "the probe never triggers a search", and the whole table
+means nothing. `behavior.py` prints a warning and fails if a control does not
+fire.
+
+**Results are probabilistic, so they are reported as k/n.** The model may
+decline to use a tool it has. Scenarios are repeated (3 by default) and the
+counts are published rather than a boolean, so "never" and "not this time" stay
+distinguishable. A partial count is treated as a finding, not a pass.
+
+One consequence worth stating: the verdict keys on **any** network access rather
+than on the search tool specifically. What matters for fairness is whether live
+information got in, not which door it used — and in practice, given a URL it
+recognizes, the model frequently skips search and fetches directly.
+
 ## Why a reverse proxy instead of mitmproxy
 
 `recording_proxy.py` listens on a local port. Clients reach it over **plain

@@ -49,7 +49,7 @@ def run_cells(cells: list[Cell], probe: tuple[str, ...], prefix: str) -> list[Ro
     """Run each cell and return printable result rows.
 
     `probe` names the tools to look for; they are matched against both `name`
-    and `type` prefixes — see `RecordingProxy.tool_calls_for` for why.
+    and `type` prefixes — see `RecordingProxy.tools_offered` for why.
     `prefix` names the evidence files written to disk.
     """
     ARTIFACTS.mkdir(exist_ok=True)
@@ -68,7 +68,7 @@ def run_cells(cells: list[Cell], probe: tuple[str, ...], prefix: str) -> list[Ro
                                 f"{type(exc).__name__}: {exc}", False))
                 continue
 
-            found = bool(proxy.tool_calls_for(*probe))
+            found = bool(proxy.tools_offered(*probe))
             proxy.dump(str(ARTIFACTS / f"{prefix}_{index:02d}.jsonl"))
 
         ok = found == cell.expect_tool

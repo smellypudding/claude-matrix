@@ -132,8 +132,12 @@ class RecordingProxy:
 
     # ---- assertion helpers -------------------------------------------
 
-    def tool_calls_for(self, *names: str) -> list[str]:
-        """Return identifiers of tools in any captured request matching `names`.
+    def tools_offered(self, *names: str) -> list[str]:
+        """Which of `names` were *shipped to the model* in any captured request.
+
+        This reads the request's `tools[]` array, i.e. what the model was
+        allowed to use. Contrast with `tool_uses`, which reads what the model
+        actually did.
 
         Why match on both `name` and `type`? Because the same capability takes
         different shapes across modes:
@@ -156,6 +160,58 @@ class RecordingProxy:
                 if name in wanted or any(type_.startswith(w) for w in wanted):
                     found.append(tool.get("type") or tool.get("name"))
         return found
+
+    def tool_uses(self, *names: str) -> list[dict[str, Any]]:
+        """Which of `names` the model *actually invoked*, as full tool_use blocks.
+
+        Reads the conversation history rather than the tool list. When the model
+        calls a tool, that call is replayed in `messages[*].content[*]` of the
+        next request — an agentic loop always sends one more request to hand
+        back the `tool_result`, so the call is always captured.
+
+        Whole blocks are returned rather than just names so callers can inspect
+        `input`; that is how `features/web_search/behavior.py` spots a model
+        reaching the network through `Bash` + `curl` once the web tools are gone.
+
+        Names are matched exactly and case-insensitively. Unlike `tools_offered`
+        there is no type-prefix matching, because a tool_use block carries the
+        tool's name, never its declaration type.
+        """
+        wanted = {n.lower() for n in names}
+        found: list[dict[str, Any]] = []
+        for req in self.requests:
+            for message in (req.get("body") or {}).get("messages") or []:
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue  # a plain string turn holds no tool calls
+                for block in content:
+                    if block.get("type") != "tool_use":
+                        continue
+                    if (block.get("name") or "").lower() in wanted:
+                        found.append(block)
+        return found
+
+    def tool_results(self) -> dict[str, dict[str, Any]]:
+        """Map every `tool_use_id` to the `tool_result` block that answered it.
+
+        Pairing a call with its result is what separates *attempted* from
+        *executed*. A harness can accept a tool call and then refuse to run it
+        — in non-interactive mode there is nobody to approve a permission
+        prompt, so the result comes back with `is_error: true` and a message
+        about permissions, and the tool never reached the network.
+
+        Later results win, so a retried call reflects its final outcome.
+        """
+        results: dict[str, dict[str, Any]] = {}
+        for req in self.requests:
+            for message in (req.get("body") or {}).get("messages") or []:
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if block.get("type") == "tool_result" and block.get("tool_use_id"):
+                        results[block["tool_use_id"]] = block
+        return results
 
     def dump(self, path: str) -> None:
         """Write captured requests as JSONL — the raw evidence for manual review."""

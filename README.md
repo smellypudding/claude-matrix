@@ -34,6 +34,11 @@ body** sent to Anthropic.
   silently misses it under the CLI and Agent SDK.
 * Risk ordering is the opposite of intuition: the direct API is structurally
   safe, while the two harness modes are the ones enabled by default.
+* Behaviorally, default `claude -p` never actually reaches the network: the
+  model calls the tool on every run and the permission system refuses it, since
+  non-interactive mode has nobody to approve the prompt. That safety is
+  **incidental** — one `--allowedTools WebSearch` away from being live, so
+  disable the tools explicitly rather than relying on it.
 
 Full conditions, raw evidence, and reasoning: [docs/web_search.md](docs/web_search.md).
 
@@ -57,6 +62,14 @@ python -m features.web_search.agent_sdk   # Agent SDK only
 python -m features.web_search.direct_api  # direct API only
 ```
 
+The behavioral cross-check is separate because it costs far more — it performs
+real agentic runs with live network access, 3 repeats per scenario:
+
+```bash
+python -m features.web_search.behavior    # 6 scenarios x 3 repeats
+python -m features.web_search.behavior 1  # smoke test, 1 repeat each
+```
+
 The Agent SDK and direct API modes need extra dependencies. When they are
 missing, those cells are **skipped explicitly** rather than passing silently:
 
@@ -76,6 +89,7 @@ features/<feature>/
     agent_sdk.py              # mode 2: Agent SDK, runnable on its own
     direct_api.py             # mode 3: direct API, runnable on its own
     run.py                    # entry point: all modes, one table
+    behavior.py               # behavioral cross-check (optional, costly)
 docs/<feature>.md             # full experimental record for that feature
 docs/methodology.md           # method, fairness isolation checklist, known limits
 artifacts/                    # captured request bodies (not committed, see .gitignore)
